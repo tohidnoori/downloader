@@ -1,0 +1,92 @@
+---
+name: 04- 🗑 حذف تمام دانلودها
+
+on:
+  workflow_dispatch:
+    inputs:
+      warning:
+        description: '⚠️ WARNING: This will DELETE ALL files inside downloads/ folder. Click "Run workflow" only if you are sure.'
+        required: false
+        default: 'Read this warning before proceeding'
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+      - name: Clean and recreate downloads folder
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+
+          echo "AVASAM (https://avasam.ir) - Cleaning downloads folder"
+          echo ""
+
+          if [ -d "downloads" ]; then
+            echo "Removing downloads folder..."
+            git rm -rf downloads/ 2>/dev/null || true
+            rm -rf downloads/ 2>/dev/null || true
+          else
+            echo "Downloads folder doesn't exist, will create it."
+          fi
+
+          mkdir -p downloads
+          printf '## empty\nfor start go Action tab and use left side workflows\n' > downloads/README.md
+
+          git add -f downloads/README.md
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "[AVASAM] Clean downloads folder [skip ci]"
+
+          echo "Pushing changes..."
+
+          RETRY=0
+          MAX_RETRIES=5
+          while [ $RETRY -lt $MAX_RETRIES ]; do
+            RETRY=$((RETRY + 1))
+
+            git fetch origin "$BRANCH" --quiet 2>/dev/null || true
+            git rebase origin/"$BRANCH" 2>/dev/null || {
+              git rebase --abort 2>/dev/null || true
+              git reset --hard HEAD~1 2>/dev/null || true
+              git pull --rebase origin "$BRANCH" 2>/dev/null || true
+
+              rm -rf downloads/ 2>/dev/null || true
+              mkdir -p downloads
+              printf '## empty\nfor start go Action tab and use left side workflows\n' > downloads/README.md
+              git add -f downloads/README.md
+              git commit -m "[AVASAM] Clean downloads folder [skip ci]" 2>/dev/null || true
+            }
+
+            if timeout 60 git push origin HEAD:"$BRANCH" 2>&1; then
+              echo ""
+              echo "=========================================="
+              echo "✅ Downloads folder cleared successfully!"
+              echo "AVASAM (https://avasam.ir)"
+              echo "=========================================="
+              exit 0
+            else
+              echo "Push failed, retry $RETRY/$MAX_RETRIES..."
+              sleep $((2 + RANDOM % 5))
+            fi
+          done
+
+          echo "❌ Failed to push after $MAX_RETRIES attempts"
+          exit 1
