@@ -1,0 +1,84 @@
+name: 100- 🧹 تمیزکننده مخزن
+
+on:
+  workflow_dispatch:
+    inputs:
+      info:
+        description: 'با اجرای این ابزار هیچ فایلی از ریپازیتوری شما پاک نمیشود ولی تاریخچه ی فایل های دانلود شده و حذف شده که بصورت جداگانه ذخیره میشود و باعث پرشدن بیهوده ی فضای گیتهاب شما میشود پاکسازی خواهد شد . پیشنهاد میشود بعد از اتمام دانلود فایلهاتون این ابزار را یکبار اجرا کنید ✨'
+        required: false
+        default: '🚀 برای اجرا دکمه Run workflow رو بزن'
+        type: string
+        
+permissions:
+  contents: write
+
+jobs:
+  check-status:
+    name: 📊 بررسی وضعیت مخزن
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 دریافت کامل تاریخچه
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📊 نمایش خلاصه وضعیت مخزن
+        run: |
+          echo "## 📊 وضعیت مخزن قبل از پاکسازی" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 📦 حجم مخزن" >> $GITHUB_STEP_SUMMARY
+          echo "| مورد | حجم |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| پوشه .git | $(du -sh .git | cut -f1) |" >> $GITHUB_STEP_SUMMARY
+          echo "| آبجکت‌ها | $(du -sh .git/objects | cut -f1) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🔢 تعداد کامیت‌ها" >> $GITHUB_STEP_SUMMARY
+          echo "**$(git rev-list --count HEAD)** کامیت" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 📁 فایل‌های بزرگتر از 20MB در تاریخچه" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          git rev-list --objects --all | \
+            git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' | \
+            sed -n 's/^blob //p' | \
+            awk '$2 >= 20971520 { print $3, int($2/1048576) "MB" }' | \
+            sort -k2 -rn | head -20 >> $GITHUB_STEP_SUMMARY || echo "فایلی یافت نشد ✅" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  clean-history:
+    name: 🗑️ پاکسازی تاریخچه
+    needs: check-status
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 دریافت کامل تاریخچه
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ⚙️ نصب ابزار git-filter-repo
+        run: pip install git-filter-repo
+
+      - name: 🧹 حذف فایل‌های بزرگتر از 20MB
+        run: git filter-repo --strip-blobs-bigger-than 20M --force
+
+      - name: 🚀 ارسال تغییرات به مخزن
+        run: |
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git push --force --all
+          git push --force --tags
+
+      - name: ✅ نمایش نتیجه نهایی
+        run: |
+          echo "## ✅ پاکسازی با موفقیت انجام شد!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📏 حجم جدید مخزن" >> $GITHUB_STEP_SUMMARY
+          echo "| مورد | حجم |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| پوشه .git | $(du -sh .git | cut -f1) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🎉 تمام فایل‌های بزرگتر از 20MB از تاریخچه حذف شدند!" >> $GITHUB_STEP_SUMMARY
